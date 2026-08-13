@@ -1,0 +1,3 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import {CadenceApp,json} from '../src/cadence.js';
+test('routes params through middleware', async()=>{ const app=new CadenceApp().use(async(c,n)=>{c.state.seen=true;await n();}).get('/users/:id',c=>({id:c.params.id,seen:c.state.seen})); const r=await app.handle({method:'GET',url:'/users/a%20b'}); assert.equal(r.status,200); assert.deepEqual(r.body,{id:'a b',seen:true}); });
+test('validation can short circuit', async()=>{ const app=new CadenceApp().use(json(v=>typeof v.name==='string'?{ok:true,value:v}:{ok:false,issues:['name']})).post('/x',c=>c.state.input); const r=await app.handle({method:'POST',url:'/x',body:{}}); assert.equal(r.status,400); });
