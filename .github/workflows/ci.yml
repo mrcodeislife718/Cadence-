@@ -8,6 +8,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node: [22, 24]
     steps:
@@ -15,4 +16,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: npm test
+      - name: Run framework, failure-path, HTTP, and raw WebSocket proof
+        run: npm test
+
+  parallel-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Cadence
+        uses: actions/checkout@v4
+        with:
+          path: cadence
+      - name: Checkout Parallel independently
+        uses: actions/checkout@v4
+        with:
+          repository: mrcodeislife718/Parallel
+          path: parallel
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Prove Cadence serving through real Parallel HTTP runtime
+        working-directory: cadence
+        env:
+          PARALLEL_REPO: ${{ github.workspace }}/parallel
+        run: node test/parallel-integration.mjs
