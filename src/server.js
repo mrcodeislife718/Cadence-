@@ -4,10 +4,23 @@ import { EventEmitter } from 'node:events';
 import { CadenceSocket } from './modules.js';
 
 export class CadenceServer {
-  constructor(app, { host = '127.0.0.1', port = 0 } = {}) { this.app = app; this.host = host; this.port = port; this.webSockets = []; this.server = http.createServer((req,res)=>this.#handle(req,res)); this.server.on('upgrade',(req,socket,head)=>this.#upgrade(req,socket,head)); }
+  constructor(app, { host = '127.0.0.1', port = 0 } = {}) {
+    this.app = app;
+    this.host = host;
+    this.port = port;
+    this.webSockets = [];
+    this.sockets = new Set();
+    this.server = http.createServer((req,res)=>this.#handle(req,res));
+    this.server.on('connection',(socket)=>{this.sockets.add(socket);socket.once('close',()=>this.sockets.delete(socket));});
+    this.server.on('upgrade',(req,socket,head)=>this.#upgrade(req,socket,head));
+  }
   websocket(path, handler) { const names=[]; const regex=new RegExp('^'+path.split('/').map((part)=>part.startsWith(':')?(names.push(part.slice(1)),'([^/]+)'):escapeRegex(part)).join('/')+'$'); this.webSockets.push({path,regex,names,handler}); return this; }
   async listen() { await new Promise((resolve,reject)=>{this.server.once('error',reject);this.server.listen(this.port,this.host,resolve);}); const address=this.server.address(); return {host:this.host,port:address.port,url:`http://${this.host}:${address.port}`}; }
-  async close() { if(this.server.listening) await new Promise((resolve)=>this.server.close(resolve)); }
+  async close() {
+    for (const socket of [...this.sockets]) socket.destroy();
+    this.sockets.clear();
+    if(this.server.listening) await new Promise((resolve)=>this.server.close(resolve));
+  }
   async #handle(req,res) {
     try {
       const chunks=[]; for await (const chunk of req) chunks.push(chunk);
