@@ -1,1 +1,8 @@
-{"name":"@cannon/cadence","version":"0.1.0","type":"module","scripts":{"test":"node --test"},"engines":{"node":">=20"}}
+{
+  "name": "@cannon/cadence",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.js",
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=20" }
+}
