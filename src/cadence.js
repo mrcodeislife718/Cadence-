@@ -1,38 +1,54 @@
 export class Router {
   constructor(){ this.routes=[]; }
-  add(method,path,handler){
-    if(typeof handler!=='function') throw new TypeError('handler must be a function');
+  add(method,path,...handlers){
+    if(!handlers.length || handlers.some((handler)=>typeof handler!=='function')) throw new TypeError('route handlers must be functions');
     const names=[];
     const pattern=path.split('/').map(p=>p.startsWith(':')?(names.push(p.slice(1)),'([^/]+)'):p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('/');
-    this.routes.push({method:method.toUpperCase(),path,names,re:new RegExp(`^${pattern}$`),handler});
+    this.routes.push({method:method.toUpperCase(),path,names,re:new RegExp(`^${pattern}$`),handlers});
     return this;
   }
   match(method,urlPath){
-    for(const r of this.routes){ if(r.method!==method.toUpperCase()) continue; const m=r.re.exec(urlPath); if(!m) continue; return {route:r,params:Object.fromEntries(r.names.map((n,i)=>[n,decodeURIComponent(m[i+1])]))}; }
+    for(const route of this.routes){
+      if(route.method!==method.toUpperCase()) continue;
+      const match=route.re.exec(urlPath);
+      if(!match) continue;
+      return {route,params:Object.fromEntries(route.names.map((name,index)=>[name,decodeURIComponent(match[index+1])]))};
+    }
     return null;
   }
 }
 
 export class CadenceApp {
   constructor(){ this.router=new Router(); this.middleware=[]; }
-  use(fn){ this.middleware.push(fn); return this; }
-  route(method,path,handler){ this.router.add(method,path,handler); return this; }
-  get(path,handler){ return this.route('GET',path,handler); }
-  post(path,handler){ return this.route('POST',path,handler); }
+  use(fn){ if(typeof fn!=='function') throw new TypeError('middleware must be a function'); this.middleware.push(fn); return this; }
+  route(method,path,...handlers){ this.router.add(method,path,...handlers); return this; }
+  get(path,...handlers){ return this.route('GET',path,...handlers); }
+  post(path,...handlers){ return this.route('POST',path,...handlers); }
+  put(path,...handlers){ return this.route('PUT',path,...handlers); }
+  patch(path,...handlers){ return this.route('PATCH',path,...handlers); }
+  delete(path,...handlers){ return this.route('DELETE',path,...handlers); }
   async handle(request){
     const url=new URL(request.url,'http://cadence.local');
     const match=this.router.match(request.method,url.pathname);
     if(!match) return {status:404,headers:{'content-type':'application/json'},body:{error:'not_found'}};
     const ctx={request,params:match.params,state:{},status:200,headers:{},body:null};
-    const chain=[...this.middleware, async c=>{ c.body=await match.route.handler(c); }];
-    let index=-1;
-    const dispatch=async i=>{ if(i<=index) throw new Error('next called multiple times'); index=i; const fn=chain[i]; if(fn) await fn(ctx,()=>dispatch(i+1)); };
+    const routeHandlers=match.route.handlers.map((handler,index,all)=> index===all.length-1
+      ? async (context,next)=>{ const result=await handler(context,next); if(result!==undefined) context.body=result; }
+      : handler);
+    const chain=[...this.middleware,...routeHandlers];
+    let cursor=-1;
+    const dispatch=async index=>{
+      if(index<=cursor) throw new Error('next called multiple times');
+      cursor=index;
+      const fn=chain[index];
+      if(fn) await fn(ctx,()=>dispatch(index+1));
+    };
     await dispatch(0);
     return {status:ctx.status,headers:ctx.headers,body:ctx.body};
   }
 }
 
-export const json = (schema) => async (ctx,next) => {
+export const json = (schema) => async (ctx,next=async()=>{}) => {
   if(ctx.request.body !== undefined){
     const value=ctx.request.body;
     const result=schema(value);
